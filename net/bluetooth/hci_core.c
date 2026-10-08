@@ -894,16 +894,24 @@ static int hci_init4_req(struct hci_request *req, unsigned long opt)
 		hci_req_add(req, HCI_OP_LE_WRITE_DEF_DATA_LEN, sizeof(cp), &cp);
 	}
 
+	return 0;
+}
+
+static int hci_le_set_default_phy_req(struct hci_request *req,
+				      unsigned long opt)
+{
+	struct hci_dev *hdev = req->hdev;
+	struct hci_cp_le_set_default_phy cp;
+
 	/* Set Default PHY parameters if command is supported */
-	if (hdev->commands[35] & 0x20) {
-		struct hci_cp_le_set_default_phy cp;
+	if (!(hdev->commands[35] & 0x20))
+		return 0;
 
-		cp.all_phys = 0x00;
-		cp.tx_phys = hdev->le_tx_def_phys;
-		cp.rx_phys = hdev->le_rx_def_phys;
+	cp.all_phys = 0x00;
+	cp.tx_phys = hdev->le_tx_def_phys;
+	cp.rx_phys = hdev->le_rx_def_phys;
 
-		hci_req_add(req, HCI_OP_LE_SET_DEFAULT_PHY, sizeof(cp), &cp);
-	}
+	hci_req_add(req, HCI_OP_LE_SET_DEFAULT_PHY, sizeof(cp), &cp);
 
 	return 0;
 }
@@ -935,6 +943,25 @@ static int __hci_init(struct hci_dev *hdev)
 		return err;
 
 	err = __hci_req_sync(hdev, hci_init4_req, 0, HCI_INIT_TIMEOUT, NULL);
+	if (err < 0)
+		return err;
+
+	err = __hci_req_sync(hdev, hci_le_set_default_phy_req, 0,
+			     HCI_INIT_TIMEOUT, NULL);
+	if (err == -EBADRQC) {
+		/* The controller advertises the command in its supported
+		 * commands mask but rejects it as an unknown command
+		 * (observed on the MT7668). Fall back to the 1M-only
+		 * defaults exactly as if the command had not been
+		 * advertised, instead of failing the whole init sequence
+		 * and leaving the controller unusable.
+		 */
+		bt_dev_warn(hdev, "LE Set Default PHY rejected as unknown command, using 1M only");
+		hdev->commands[35] &= ~0x20;
+		hdev->le_tx_def_phys = HCI_LE_SET_PHY_1M;
+		hdev->le_rx_def_phys = HCI_LE_SET_PHY_1M;
+		err = 0;
+	}
 	if (err < 0)
 		return err;
 
