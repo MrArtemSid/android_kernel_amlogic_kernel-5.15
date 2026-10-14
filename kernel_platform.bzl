@@ -24,7 +24,18 @@ if [ "$$(stat -c%s $@)" -gt {threshold} ]; then
 fi
 """.format(threshold = _DTB_GZIP_THRESHOLD)
 
-def _dtb_image(name, dtb_srcs):
+def _dtb_image(name, dtb_srcs, concat = False):
+    if concat:
+        # Plain concatenation, as in an Android boot image v2 DTB section.
+        # Never compressed: the bootloader walks the DTB headers.
+        native.genrule(
+            name = name,
+            srcs = dtb_srcs,
+            outs = ["dtb.img"],
+            cmd = "cat $(SRCS) > $@",
+        )
+        return
+
     if len(dtb_srcs) == 1:
         native.genrule(
             name = name,
@@ -60,6 +71,7 @@ def amlogic_kernel_platform(
         gki_modules_remove = None,
         system_dlkm_modules_load = None,
         dtbo_srcs = None,
+        dtb_image_concat = False,
         make_goals = None):
     kernel_modules = kernel_modules or []
     gki_modules = [m for m in get_gki_modules_list("arm64") if m not in (gki_modules_remove or [])]
@@ -125,6 +137,7 @@ def amlogic_kernel_platform(
     _dtb_image(
         name = name + "_dtb_image",
         dtb_srcs = dtb_img_srcs,
+        concat = dtb_image_concat,
     )
 
     dist_data = [
